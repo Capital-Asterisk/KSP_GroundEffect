@@ -12,7 +12,8 @@ namespace KSP_GroundEffect
 	public class ModuleGroundEffect : PartModule 
 	{ 
 
-		public const float ActivateAltitude = 400;
+		public const float ActivateAltitude = 80;
+		public const float RaycastAltitude = 30;
 
 		private float initialLift;
 		private float initialLiftCtrl;
@@ -85,63 +86,78 @@ namespace KSP_GroundEffect
 
 		public override void OnUpdate() {
 
-			float multiplier = 0;
+			float multiplier = 1.0f;
 
 			// Checks to see if ground effect would have any significance
-			if (((vessel.situation & (Vessel.Situations.FLYING | Vessel.Situations.LANDED | Vessel.Situations.SPLASHED)) == 0)
+			if (!(((vessel.situation & (Vessel.Situations.FLYING | Vessel.Situations.LANDED | Vessel.Situations.SPLASHED)) == 0)
 			    || (vessel.radarAltitude > ActivateAltitude)
 			    || !vessel.mainBody.hasSolidSurface
-			    || !vessel.mainBody.atmosphere) {
-
-				// Set multiplier to 1 so that coefficients would have no change
-				multiplier = 1.0f;
-			} else {
-
-				// 
+				|| !vessel.mainBody.atmosphere)) {
 
 				float groundDistance = 0;
 				Vector3 surfaceNormal = vessel.gravityForPos.normalized;
 
-				// Distance from ocean,
-				if (FlightGlobals.currentMainBody.ocean) {
-					groundDistance = Math.Max(FlightGlobals.getAltitudeAtPos (part.transform.position), 0);
-				}
+				// Dot product with surface normal is how aligned the wing is to the ground.
+				// Vertical stabilizers would have a dot product of zero
+				// Horizontal wings will have 1
+				float dot = Math.Abs(Vector3.Dot(surfaceNormal, part.transform.forward));
 
-				// Test for terrain
-				RaycastHit ray;
-				if (Physics.Raycast (part.transform.position, surfaceNormal, out ray, wingSpan * 2, 1 << 15)) {
-					// Close to ground, override groundDistance if close to terrain, buildings, or anything
-					groundDistance = (groundDistance == 0) ? ray.distance : Math.Min (groundDistance, ray.distance);
+				// say that wings must be within 45 degrees flat towards the ground to have any effect 
+				if (dot > 0.707f) {
 
-					// also set surface normal
-					surfaceNormal = ray.normal;
-				}
+					// Check distance from ocean (if planet has one), sea level is 0 (i think)
+					if (FlightGlobals.currentMainBody.ocean) {
+						// use Max to set to sea level if negative
+						groundDistance = Math.Max (FlightGlobals.getAltitudeAtPos (part.transform.position), 0.0f);
+					}
 
-				// By now, ground distance has been determined
-				// 0 means not close to terrain and no ocean
+					// Check already calculated vessel center terrain height, overwrite if it's closer
+					// and don't allow negative altitudes (that would also mean the vessel is probably destroyed)
+					groundDistance = Math.Max (Math.Min (groundDistance, (float)vessel.radarAltitude), 0.0f);
 
-				if (groundDistance != 0) {
-					// Dot product with surface normal is how aligned the wing is to the ground.
-					// Vertical stabilizers would have a dot product of zero
-					// Horizontal wings will have 1
-					float dot = Math.Abs(Vector3.Dot(surfaceNormal, part.transform.forward));
+					// Raycast terrain if it's close enough
+					if (groundDistance < RaycastAltitude) {
+						//print ("RAYCAST!!!");
+						RaycastHit ray;
+						// 1 << 15 hits anything that isn't a vessel or ocean
+						if (Physics.Raycast (part.transform.position, surfaceNormal, out ray, wingSpan * 2, 1 << 15)) {
+							// Close to ground, override groundDistance if close to terrain, buildings, or anything
+							groundDistance = (groundDistance == 0) ? ray.distance : Math.Min (groundDistance, ray.distance);
 
-					multiplier = 2.0f / (float)Math.Pow (0.3f * groundDistance + 1.0f, 2) * dot + 1.0f;
+							// also set surface normal
+							surfaceNormal = ray.normal;
+						}
+					}
+
+					// By now, ground distance has been determined
+					// 0 means not close to terrain and no ocean
+
+					if (groundDistance != 0) {
+						multiplier = 2.0f / (float)Math.Pow (0.3f * groundDistance + 1.0f, 2) * dot + 1.0f;
+						print (multiplier);
+					}
+				} else {
+					multiplier = 1.0f;
 				}
 			}
 				
 			if (ferramEnabled) {
 				
 				// Since there's no values to adjust for FAR, just apply more lift force
-				Rigidbody rb = part.Rigidbody;
+
+				// TODO: THIS DOESN'T WORK
+
 				Vector3 worldSpaceAeroForce = (Vector3)(ferramField.GetValue (ferramModule));
-				rb.AddForce (worldSpaceAeroForce * (multiplier - 1.0f));
+				print (multiplier);
+				print (worldSpaceAeroForce);
+				part.AddForce (worldSpaceAeroForce * (multiplier - 1.0f));
+				//part.AddForce (new Vector3(0, 3000, 0));
 
 			} else {
 
 				thingThatLiftsParts.deflectionLiftCoeff = initialLift * multiplier;
 				if (thingThatAlsoLiftsPartsButMoves != null) {
-					//print ("CTRL SURFACE!!");
+					// Control surfaces use a different PartModule
 					thingThatAlsoLiftsPartsButMoves.ctrlSurfaceArea = initialLiftCtrl * multiplier;
 				}
 			}
