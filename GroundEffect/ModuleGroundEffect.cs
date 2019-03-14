@@ -97,48 +97,51 @@ namespace KSP_GroundEffect
 				float groundDistance = 0;
 				Vector3 surfaceNormal = vessel.gravityForPos.normalized;
 
-				// Dot product with surface normal is how aligned the wing is to the ground.
-				// Vertical stabilizers would have a dot product of zero
-				// Horizontal wings will have 1
-				float dot = Math.Abs(Vector3.Dot(surfaceNormal, part.transform.forward));
 
 				// say that wings must be within 45 degrees flat towards the ground to have any effect 
-				if (dot > 0.707f) {
+				//if (dot > 0.707f) {
 
-					// Check distance from ocean (if planet has one), sea level is 0 (i think)
-					if (FlightGlobals.currentMainBody.ocean) {
-						// use Max to set to sea level if negative
-						groundDistance = Math.Max (FlightGlobals.getAltitudeAtPos (part.transform.position), 0.0f);
-					}
-
-					// Check already calculated vessel center terrain height, overwrite if it's closer
-					// and don't allow negative altitudes (that would also mean the vessel is probably destroyed)
-					groundDistance = Math.Max (Math.Min (groundDistance, (float)vessel.radarAltitude), 0.0f);
-
-					// Raycast terrain if it's close enough
-					if (groundDistance < RaycastAltitude) {
-						//print ("RAYCAST!!!");
-						RaycastHit ray;
-						// 1 << 15 hits anything that isn't a vessel or ocean
-						if (Physics.Raycast (part.transform.position, surfaceNormal, out ray, wingSpan * 2, 1 << 15)) {
-							// Close to ground, override groundDistance if close to terrain, buildings, or anything
-							groundDistance = (groundDistance == 0) ? ray.distance : Math.Min (groundDistance, ray.distance);
-
-							// also set surface normal
-							surfaceNormal = ray.normal;
-						}
-					}
-
-					// By now, ground distance has been determined
-					// 0 means not close to terrain and no ocean
-
-					if (groundDistance != 0) {
-						multiplier = 2.0f / (float)Math.Pow (0.3f * groundDistance + 1.0f, 2) * dot + 1.0f;
-						print (multiplier);
-					}
-				} else {
-					multiplier = 1.0f;
+				// Check distance from ocean (if planet has one), sea level is 0 (i think)
+				if (FlightGlobals.currentMainBody.ocean) {
+					// use Max to set to sea level if negative
+					groundDistance = Math.Max (FlightGlobals.getAltitudeAtPos (part.transform.position), 0.0f);
 				}
+
+				// Check already calculated vessel center terrain height, overwrite if it's closer
+				// and don't allow negative altitudes (that would also mean the vessel is probably destroyed)
+				groundDistance = Math.Max (Math.Min (groundDistance, (float)vessel.radarAltitude), 0.0f);
+
+				// Raycast terrain if it's close enough
+				if (groundDistance < RaycastAltitude) {
+					//print ("RAYCAST!!!");
+					RaycastHit ray;
+					// 1 << 15 hits anything that isn't a vessel or ocean
+					if (Physics.Raycast (part.transform.position, surfaceNormal, out ray, wingSpan * 2, 1 << 15)) {
+						// Close to ground, override groundDistance if close to terrain, buildings, or anything
+						groundDistance = (groundDistance == 0) ? ray.distance : Math.Min (groundDistance, ray.distance);
+
+						// also set surface normal
+						surfaceNormal = ray.normal;
+					}
+				}
+
+				// By now, ground distance has been determined
+				// 0 means not close to terrain and no ocean
+
+				if (groundDistance != 0) {
+					
+					// Dot product with surface normal is how aligned the wing is to the ground.
+					// Vertical stabilizers would have a dot product of zero
+					// Horizontal wings will have 1
+					float dot = Math.Abs(Vector3.Dot(surfaceNormal, part.transform.forward));
+
+					multiplier = 2.0f / (float)Math.Pow (0.3f * groundDistance + 1.0f, 2) * dot + 1.0f;
+					//print (multiplier);
+				}
+				//} else {
+					multiplier = 1.0f;
+
+				//}
 			}
 				
 			if (ferramEnabled) {
@@ -148,8 +151,8 @@ namespace KSP_GroundEffect
 				// TODO: THIS DOESN'T WORK
 
 				Vector3 worldSpaceAeroForce = (Vector3)(ferramField.GetValue (ferramModule));
-				print (multiplier);
-				print (worldSpaceAeroForce);
+				//print (multiplier);
+				///print (worldSpaceAeroForce);
 				part.AddForce (worldSpaceAeroForce * (multiplier - 1.0f));
 				//part.AddForce (new Vector3(0, 3000, 0));
 
