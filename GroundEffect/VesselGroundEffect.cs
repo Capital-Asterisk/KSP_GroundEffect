@@ -9,22 +9,45 @@ namespace KSP_GroundEffect
     public class VesselGroundEffect : VesselModule
     {
 
+        // Minimum Radar Altitude to start testing
         public const float ActivateAltitude = 80;
-        //CenterOfLiftQuery colQuery;
 
-        bool inGroundEffect;
-        float wingSpan;
-        Plane groundPlane;
-        Vector3 gravityDir;
+        // How much lift is multiplied at maximum proximity
+        public const float LiftMultiplier = 4;
 
-        // ModuleLiftingSurface and ModuleControlSurface use different
-        // variables for lift coefficient. They should be dealt with separately
+        // Situation at which ground effect can occur
+        Vessel.Situations LowFlying = (
+            Vessel.Situations.FLYING
+            | Vessel.Situations.LANDED
+            | Vessel.Situations.SPLASHED
+        );
 
+        // ModuleLiftingSurface uses deflectionLiftCoeff
+        // ModuleControlSurface uses ctrlSurfaceArea
+
+        // Lift of aerodynamic surfaces
         List<ModuleLiftingSurface> liftingSurfaces;
         List<ModuleControlSurface> controlSurfaces;
 
+        // Initial lift values
+        // Original values are modified, so they have to be stored
         List<float> liftingInitLift;
         List<float> controlInitLift;
+
+        // Keep track of when the vessel enters/exits the ActivateAltitude
+        bool inRange;
+
+        // Keep track of when ground effect forces are actually active
+        bool inGroundEffect;
+
+        // Approximated every FixedUpdate
+        float wingSpan;
+
+        // Plane used to approximate the ground
+        Plane groundPlane;
+
+        // Direction towards the ground
+        Vector3 groundDir;
 
         protected override void OnStart()
         {
@@ -38,9 +61,8 @@ namespace KSP_GroundEffect
         public override void OnLoadVessel()
         {
             base.OnLoadVessel();
-            //print(vessel.GetName() + " LOADED: " + vessel.loaded);
-            groundPlane = new Plane();
 
+            // Got this technique from Ferram
             GameEvents.onVesselStandardModification.Add(VesselStandardModification);
         }
 
@@ -64,20 +86,18 @@ namespace KSP_GroundEffect
                 // Set all lift values to default, as the new VesselGroundEffect
                 // that would be added to it will use modified values as defaults
 
-                //print("Vessel Modified!!!!");
-
                 ResetLiftValues();
             }
         }
 
         private void FixedUpdate()
         {
-            //print(vessel.GetName() + " " + vessel.loaded + " " + Time.time);
+
             if (vessel.loaded)
             {
 
                 // Checks to see if ground effect would have any significance
-                if (!(((vessel.situation & (Vessel.Situations.FLYING | Vessel.Situations.LANDED | Vessel.Situations.SPLASHED)) == 0)
+                if (!(((vessel.situation & LowFlying) == 0)
                     || (vessel.radarAltitude > ActivateAltitude)
                     || !vessel.mainBody.hasSolidSurface
                     || !vessel.mainBody.atmosphere))
@@ -85,11 +105,11 @@ namespace KSP_GroundEffect
                     if (liftingSurfaces == null)
                     {
                         // Count the control surfaces if not done so
-                        print(vessel.GetName() + " Entered Ground Effect");
+                        //print(vessel.GetName() + " Entered Ground Effect range");
                         CountSurfaces();
                     }
 
-                    gravityDir = vessel.gravityForPos.normalized;
+                    groundDir = vessel.gravityForPos.normalized;
 
                     // Find out where the ground is
                     // Note: the side of a cliff counts too
@@ -104,14 +124,14 @@ namespace KSP_GroundEffect
                     //   Collider.
                     //}
 
-                    // The calculations above don't seem to work yet, use ones below
+                    // The calculations above aren't done yet
+                    // Use raytrace below to set the ground plane
 
-                    // Raycast terrain if it's close enough
                     if (vessel.radarAltitude < wingSpan * 2)
                     {
                         RaycastHit ray;
                         // 1 << 15 hits anything that isn't a vessel or ocean
-                        if (Physics.Raycast(vessel.CoM, gravityDir, out ray, wingSpan * 2, 1 << 15))
+                        if (Physics.Raycast(vessel.CoM, groundDir, out ray, wingSpan * 2, 1 << 15))
                         {
                             groundPlane.SetNormalAndPosition(ray.normal, ray.point);
 
@@ -121,10 +141,17 @@ namespace KSP_GroundEffect
                     {
                         groundPlane.distance = 0;
                     }
-
-
+                   
+                    float newWingSpan = 1;
                     float lift;
-                    float newWingSpan = 0;
+
+                    bool prevInGroundEffect = inGroundEffect;
+
+                    // Set true in CalculateLift, if a wing is close enough
+                    inGroundEffect = false;
+
+                    // Loop trough all surfaces and change their lift
+                    // Also get the max wingspan
 
                     for (int i = 0; i < liftingSurfaces.Count; i++)
                     {
@@ -145,14 +172,21 @@ namespace KSP_GroundEffect
                         newWingSpan = Math.Max(newWingSpan, ApproximateWingSpan(part));
                     }
 
-                    wingSpan = newWingSpan;
-                    //print("WingSpan: " + newWingSpan);
+                    if (prevInGroundEffect && !inGroundEffect)
+                    {
+                        print(vessel.GetName() + " Exited Ground Effect");
+                    }
+                    else if (!prevInGroundEffect && inGroundEffect)
+                    {
+                        print(vessel.GetName() + " Entered Ground Effect");
+                    }
 
+                    wingSpan = newWingSpan;
                 }
-                else if (inGroundEffect)
+                else if (inRange)
                 {
-                    print(vessel.GetName() + " Exited Ground Effect");
-                    inGroundEffect = false;
+                    //print(vessel.GetName() + " Exited Ground Effect range");
+                    inRange = false;
                     ResetLiftValues();
                 }
             }
@@ -160,16 +194,36 @@ namespace KSP_GroundEffect
 
         private float ApproximateWingSpan(Part part)
         {
+            // Problem: there isn't a good way to get 'Forward'
+            // Which wings are left and right?
+            // What if it's a spinning rotor?
+           
+            // This part checks how perpendicular the wing's position is with
+            // its velocity, using dot product.
+
+            // If velocity is [Forward], then
+            // Wings directly in front or behind the CoM will have 0 wingspan
+            // Wings to the side of center of mass, will have a wingspan equal
+            // to their distance from the CoM + size
+
+            if (part == null || part.collider == null || part.Rigidbody == null)
+            {
+                return 0;
+            }
+
+            // CoL moves around a bit too much, so I thought CoM would be better
             Vector3 localPos = (part.transform.position - vessel.CoM);
+
             float mag = localPos.magnitude;
             return 2.0f * (mag * (1.0f - Math.Abs(Vector3.Dot(part.Rigidbody.velocity.normalized, localPos / mag))) + part.collider.bounds.size.magnitude / 2);
         }
 
         private float CalculateLift(Part part, float initialValue)
         {
-            float groundDistance = 0;
-            Vector3 surfaceNormal = vessel.gravityForPos.normalized;
 
+            // groundPlane.distance and groundDistance are different btw.
+            // groundDistance is measured from an individual part
+            float groundDistance = Single.MaxValue;
 
             // say that wings must be within 45 degrees flat towards the ground to have any effect 
             //if (dot > 0.707f) {
@@ -177,37 +231,39 @@ namespace KSP_GroundEffect
             // Check distance from ocean (if planet has one), sea level is 0 (i think)
             if (FlightGlobals.currentMainBody.ocean)
             {
-                // use Max to set to sea level if negative
-                groundDistance = Math.Max(FlightGlobals.getAltitudeAtPos(part.transform.position), 0.0f);
+                groundDistance = FlightGlobals.getAltitudeAtPos(part.transform.position);
             }
 
+            // groundPlane.distance is zero if ground is too far away
             if (groundPlane.distance != 0.0f)
             {
                 groundDistance = Math.Min(groundDistance, groundPlane.GetDistanceToPoint(part.transform.position));
-                print("Ground Plane distance: " + groundDistance);
+                //print("Ground Plane distance: " + groundDistance);
             }
 
             // By now, ground distance has been determined
-            // 0 means not close to terrain and no ocean
+            // negative means not close to terrain
 
-            if (groundDistance != 0.0f)
+            groundDistance = Math.Min(1.0f, groundDistance / wingSpan);
+
+            if (groundDistance != 1.0f)
             {
+                inGroundEffect = true;
 
                 // Dot product with surface normal is how aligned the wing is to the ground.
                 // Vertical stabilizers would have a dot product of zero
                 // Horizontal wings will have 1
-                float dot = Math.Abs(Vector3.Dot(surfaceNormal, part.transform.forward));
+                float dot = Math.Abs(Vector3.Dot(groundDir, part.transform.forward));
 
-                groundDistance = Math.Min(1, groundDistance / wingSpan);
                 // Ground distance is now in wings spans to the ground
 
-                // Multiplier when ground distance is 0 wingspans
-                // 6 * more lift when close on ground
-                float mul = 4;
-
                 // y = m(x - 1)^2 + 1
-                print("Extra Lift: " + ((mul - 1) * (float)Math.Pow(groundDistance - 1.0f, 2.0f)));
-                return initialValue * dot * ((mul - 1) * (float)Math.Pow(groundDistance - 1.0f, 2.0f) + 1.0f);
+                float equation = (
+                            (LiftMultiplier - 1)
+                            * (float)(Math.Pow(groundDistance - 1.0f, 2.0f))
+                            + 1.0f);
+                //print("Extra Lift: " + ((LiftMultiplier - 1) * (float)Math.Pow(groundDistance - 1.0f, 2.0f)));
+                return initialValue * dot * equation;
             }
 
             return initialValue;
@@ -241,7 +297,7 @@ namespace KSP_GroundEffect
         private void CountSurfaces()
         {
 
-            print("ASDASDASD Counting wings");
+            print("Counting wings for " + vessel.GetName());
 
             liftingSurfaces = new List<ModuleLiftingSurface>();
             controlSurfaces = new List<ModuleControlSurface>();
@@ -249,9 +305,11 @@ namespace KSP_GroundEffect
             liftingInitLift = new List<float>();
             controlInitLift = new List<float>();
 
-            inGroundEffect = true;
+            inRange = true;
 
-            // This will be recalculated later
+            groundPlane = new Plane();
+
+            // This will be calculated later
             wingSpan = 42 / 42;
 
             foreach (Part part in vessel.Parts)
