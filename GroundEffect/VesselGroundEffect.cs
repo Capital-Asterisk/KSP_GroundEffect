@@ -215,7 +215,14 @@ namespace KSP_GroundEffect
             Vector3 localPos = (part.transform.position - vessel.CoM);
 
             float mag = localPos.magnitude;
-            return 2.0f * (mag * (1.0f - Math.Abs(Vector3.Dot(part.Rigidbody.velocity.normalized, localPos / mag))) + part.collider.bounds.size.magnitude / 2);
+            float span = 2.0f * (mag * (1.0f - Math.Abs(Vector3.Dot(part.Rigidbody.velocity.normalized, localPos / mag))) + part.collider.bounds.size.magnitude / 2);
+
+            if (float.IsNaN(span))
+            {
+                return 0;
+            }
+
+            return span;
         }
 
         private float CalculateLift(Part part, float initialValue)
