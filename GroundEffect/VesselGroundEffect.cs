@@ -13,7 +13,7 @@ namespace KSP_GroundEffect
         public const float ActivateAltitude = 80;
 
         // How much lift is multiplied at maximum proximity
-        public const float LiftMultiplier = 4;
+        public const float LiftMultiplier = 3;
 
         // Situation at which ground effect can occur
         Vessel.Situations LowFlying = (
@@ -238,18 +238,19 @@ namespace KSP_GroundEffect
             // Check distance from ocean (if planet has one), sea level is 0 (i think)
             if (FlightGlobals.currentMainBody.ocean)
             {
-                groundDistance = FlightGlobals.getAltitudeAtPos(part.transform.position);
+                groundDistance = Math.Max(FlightGlobals.getAltitudeAtPos(part.transform.position), 0.0f);
             }
 
             // groundPlane.distance is zero if ground is too far away
             if (groundPlane.distance != 0.0f)
             {
+                // Set ground distance to approximated terrain proximity
+                // If the ocean is closer, then the ocean distance will be used
                 groundDistance = Math.Min(groundDistance, groundPlane.GetDistanceToPoint(part.transform.position));
                 //print("Ground Plane distance: " + groundDistance);
             }
 
             // By now, ground distance has been determined
-            // negative means not close to terrain
 
             groundDistance = Math.Min(1.0f, groundDistance / wingSpan);
 
@@ -269,7 +270,7 @@ namespace KSP_GroundEffect
                             (LiftMultiplier - 1)
                             * (float)(Math.Pow(groundDistance - 1.0f, 2.0f))
                             + 1.0f);
-                //print("Extra Lift: " + ((LiftMultiplier - 1) * (float)Math.Pow(groundDistance - 1.0f, 2.0f)));
+                //print("Extra Lift: " + equation);
                 return initialValue * dot * equation;
             }
 
@@ -345,14 +346,6 @@ namespace KSP_GroundEffect
 
                 if (thingThatLiftsParts != null)
                 {
-                    // A Lifting Surface has been found, use to calculate initial wingspan
-                    //thingThatLiftsParts.OnCenterOfLiftQuery(colQuery);
-                    //colQuery.pos;
-                    //foreach (Bounds bounds in part.GetColliderBounds())
-                    //{
-                    //    bounds.
-                    //}
-
                     if (thingThatLiftsPartsAndMoves != null)
                     {
                         // It's a control surface, add to control surface arrays
