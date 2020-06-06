@@ -13,10 +13,10 @@ namespace KSP_GroundEffect
         public const float ActivateAltitude = 80;
 
         // How much lift is multiplied at maximum proximity
-        public const float LiftMultiplier = 3;
+        public const float LiftMultiplier = 30;
 
         // Situation at which ground effect can occur
-        Vessel.Situations LowFlying = (
+        const Vessel.Situations LowFlying = (
             Vessel.Situations.FLYING
             | Vessel.Situations.LANDED
             | Vessel.Situations.SPLASHED
@@ -28,11 +28,6 @@ namespace KSP_GroundEffect
         // Lift of aerodynamic surfaces
         List<ModuleLiftingSurface> liftingSurfaces;
         List<ModuleControlSurface> controlSurfaces;
-
-        // Initial lift values
-        // Original values are modified, so they have to be stored
-        List<float> liftingInitLift;
-        List<float> controlInitLift;
 
         // Keep track of when the vessel enters/exits the ActivateAltitude
         bool inRange;
@@ -49,147 +44,182 @@ namespace KSP_GroundEffect
         // Direction towards the ground
         Vector3 groundDir;
 
+        Vector3 oceanNormal;
+
+        public GameObject gameBreaker;
+
         protected override void OnStart()
         {
             base.OnStart();
 
+            gameBreaker = new GameObject("Fucker");
+
+            print("Activation: " + base.GetActivation());
+
             // nothing is really done here
 
             //print ("HEWWO WORLD x3 " + vessel.GetName() + " " + (vessel.state == Vessel.State.ACTIVE));
+            TimingManager.FixedUpdateAdd(TimingManager.TimingStage.Late, FixedUpdateLateLate);
+        }
+
+
+        public void OnDestroy()
+        {
+            TimingManager.FixedUpdateRemove(TimingManager.TimingStage.Late, FixedUpdateLateLate);
         }
 
         public override void OnLoadVessel()
         {
             base.OnLoadVessel();
 
-            // Got this technique from Ferram
             GameEvents.onVesselStandardModification.Add(VesselStandardModification);
+
         }
 
         public override void OnUnloadVessel()
         {
-            base.OnUnloadVessel();
-            //print(vessel.GetName() + " UNLOADED: " + vessel.loaded);
+            // this method doesn't seem to get called anywhere
+
+            print("Vessel unloaded");
+
+           
 
             GameEvents.onVesselStandardModification.Remove(VesselStandardModification);
 
-            // Don't permanently save any of the lift values added
-            ResetLiftValues();
+
+            base.OnUnloadVessel();
+
         }
+
+
 
         public void VesselStandardModification(Vessel ves)
         {
             if (ves == vessel)
             {
-                // This vessel just exploded, undocked or something
-
-                // Set all lift values to default, as the new VesselGroundEffect
-                // that would be added to it will use modified values as defaults
-
-                ResetLiftValues();
+                // Vessel modified, list of parts changed
+                liftingSurfaces = null;
+                controlSurfaces = null;
             }
         }
 
         private void FixedUpdate()
         {
 
-            if (vessel.loaded)
+        }
+
+        private void FixedUpdateLateLate()
+        {
+
+            if (!vessel.loaded)
             {
+                return;
+            }
 
-                // Checks to see if ground effect would have any significance
-                if (!(((vessel.situation & LowFlying) == 0)
-                    || (vessel.radarAltitude > ActivateAltitude)
-                    || !vessel.mainBody.hasSolidSurface
-                    || !vessel.mainBody.atmosphere))
+            // Checks to see if ground effect would have any significance
+            if (   ((vessel.situation & LowFlying) == 0)
+                || (vessel.radarAltitude > ActivateAltitude)
+                || !vessel.mainBody.hasSolidSurface
+                || !vessel.mainBody.atmosphere)
+            {
+                if (inRange)
                 {
-                    if (liftingSurfaces == null)
-                    {
-                        // Count the control surfaces if not done so
-                        //print(vessel.GetName() + " Entered Ground Effect range");
-                        CountSurfaces();
-                    }
-
-                    groundDir = vessel.gravityForPos.normalized;
-
-                    // Find out where the ground is
-                    // Note: the side of a cliff counts too
-
-                    // Get all nearby terrain
-                    //Collider[] terrain = Physics.OverlapSphere(vessel.transform.position, wingSpan, 1 << 15);
-
-                    //print(terrain.Length);
-
-                    //foreach (Collider collider in terrain)
-                    //{
-                    //   Collider.
-                    //}
-
-                    // The calculations above aren't done yet
-                    // Use raytrace below to set the ground plane
-
-                    if (vessel.radarAltitude < wingSpan * 2)
-                    {
-                        RaycastHit ray;
-                        // 1 << 15 hits anything that isn't a vessel or ocean
-                        if (Physics.Raycast(vessel.CoM, groundDir, out ray, wingSpan * 2, 1 << 15))
-                        {
-                            groundPlane.SetNormalAndPosition(ray.normal, ray.point);
-
-                        }
-                    }
-                    else
-                    {
-                        groundPlane.distance = 0;
-                    }
-                   
-                    float newWingSpan = 1;
-                    float lift;
-
-                    bool prevInGroundEffect = inGroundEffect;
-
-                    // Set true in CalculateLift, if a wing is close enough
-                    inGroundEffect = false;
-
-                    // Loop trough all surfaces and change their lift
-                    // Also get the max wingspan
-
-                    for (int i = 0; i < liftingSurfaces.Count; i++)
-                    {
-                        Part part = liftingSurfaces[i].part;
-                        lift = CalculateLift(part, liftingInitLift[i]);
-                        liftingSurfaces[i].deflectionLiftCoeff = lift;
-
-                        newWingSpan = Math.Max(newWingSpan, ApproximateWingSpan(part));
-
-                    }
-
-                    for (int i = 0; i < controlSurfaces.Count; i++)
-                    {
-                        Part part = controlSurfaces[i].part;
-                        lift = CalculateLift(part, controlInitLift[i]);
-                        controlSurfaces[i].ctrlSurfaceArea = lift;
-
-                        newWingSpan = Math.Max(newWingSpan, ApproximateWingSpan(part));
-                    }
-
-                    if (prevInGroundEffect && !inGroundEffect)
-                    {
-                        print(vessel.GetName() + " Exited Ground Effect");
-                    }
-                    else if (!prevInGroundEffect && inGroundEffect)
-                    {
-                        print(vessel.GetName() + " Entered Ground Effect");
-                    }
-
-                    wingSpan = newWingSpan;
-                }
-                else if (inRange)
-                {
-                    //print(vessel.GetName() + " Exited Ground Effect range");
+                    // Previously in ground effect, just exited
+                    print(vessel.GetName() + " Exited Ground Effect range");
                     inRange = false;
-                    ResetLiftValues();
+                    //ResetLiftValues();
+                    liftingSurfaces = null;
+                    controlSurfaces = null;
+                }
+
+                return;
+            }
+
+
+            if (liftingSurfaces == null)
+            {
+                // Count the control surfaces if not done so
+                //print(vessel.GetName() + " Entered Ground Effect range");
+                CountSurfaces();
+            }
+
+            groundDir = vessel.gravityForPos.normalized;
+            oceanNormal = -groundDir;
+
+            // Find out where the ground is
+            // Note: the side of a cliff counts too
+
+            // Get all nearby terrain
+            //Collider[] terrain = Physics.OverlapSphere(vessel.transform.position, wingSpan, 1 << 15);
+
+            //print(terrain.Length);
+
+            //foreach (Collider collider in terrain)
+            //{
+            //   Collider.
+            //}
+
+            // The calculations above aren't done yet
+            // Use raytrace below to set the ground plane
+
+            if (vessel.radarAltitude < wingSpan * 2)
+            {
+                RaycastHit ray;
+                // 1 << 15 hits anything that isn't a vessel or ocean
+                if (Physics.Raycast(vessel.CoM, groundDir, out ray, wingSpan * 2, 1 << 15))
+                {
+                    groundPlane.SetNormalAndPosition(ray.normal, ray.point);
+
                 }
             }
+            else
+            {
+                groundPlane.distance = 0;
+            }
+           
+            float newWingSpan = 1;
+
+            bool prevInGroundEffect = inGroundEffect;
+
+            // Set true in CalculateLift, if a wing is close enough
+            inGroundEffect = false;
+
+            // Loop trough all surfaces and change their lift
+            // Also get the max wingspan
+
+
+            for (int i = 0; i < liftingSurfaces.Count; i++)
+            {
+                Part part = liftingSurfaces[i].part;
+                Vector3 newLift = AddGroundEffectForce(part, liftingSurfaces[i].liftForce);
+                if (liftingSurfaces[i].liftArrow)
+                {
+                    print("liftarrow");
+                    liftingSurfaces[i].liftArrow.Direction = newLift;
+                }
+
+
+                newWingSpan = Math.Max(newWingSpan, ApproximateWingSpan(part));
+
+            }
+
+            for (int i = 0; i < controlSurfaces.Count; i++)
+            {
+                Part part = controlSurfaces[i].part;
+                AddGroundEffectForce(part, controlSurfaces[i].liftForce);
+                newWingSpan = Math.Max(newWingSpan, ApproximateWingSpan(part));
+            }
+
+            if (prevInGroundEffect && !inGroundEffect)
+            {
+                print(vessel.GetName() + " Exited Ground Effect");
+            }
+            else if (!prevInGroundEffect && inGroundEffect)
+            {
+                print(vessel.GetName() + " Entered Ground Effect");
+            }
+
+            wingSpan = newWingSpan;
         }
 
         private float ApproximateWingSpan(Part part)
@@ -225,8 +255,9 @@ namespace KSP_GroundEffect
             return span;
         }
 
-        private float CalculateLift(Part part, float initialValue)
+        private Vector3 AddGroundEffectForce(Part part, Vector3 originalLift)
         {
+            Vector3 normal = oceanNormal;
 
             // groundPlane.distance and groundDistance are different btw.
             // groundDistance is measured from an individual part
@@ -247,60 +278,51 @@ namespace KSP_GroundEffect
                 // Set ground distance to approximated terrain proximity
                 // If the ocean is closer, then the ocean distance will be used
                 groundDistance = Math.Min(groundDistance, groundPlane.GetDistanceToPoint(part.transform.position));
-                //print("Ground Plane distance: " + groundDistance);
+                normal = groundPlane.normal;
             }
 
             // By now, ground distance has been determined
 
+            // Convert ground distance to wing spans
             groundDistance = Math.Min(1.0f, groundDistance / wingSpan);
 
-            if (groundDistance != 1.0f)
+            if (groundDistance == 1.0f)
             {
-                inGroundEffect = true;
-
-                // Dot product with surface normal is how aligned the wing is to the ground.
-                // Vertical stabilizers would have a dot product of zero
-                // Horizontal wings will have 1
-                float dot = Math.Abs(Vector3.Dot(groundDir, part.transform.forward));
-
-                // Ground distance is now in wings spans to the ground
-
-                // y = m(x - 1)^2 + 1
-                float equation = (
-                            (LiftMultiplier - 1)
-                            * (float)(Math.Pow(groundDistance - 1.0f, 2.0f))
-                            + 1.0f);
-                //print("Extra Lift: " + equation);
-                return initialValue * dot * equation;
+                // not close enough to the ground, return lift unchanged
+                return originalLift;
             }
 
-            return initialValue;
+            // Confirmed wing is in ground effect
+
+            inGroundEffect = true;
+
+            // Dot product with surface normal is how aligned the wing is to the ground.
+            // Vertical stabilizers would have a dot product of zero
+            // Horizontal wings will have 1
+            float dot = Math.Abs(Vector3.Dot(groundDir, part.transform.forward));
+
+            // Ground distance is now in wings spans to the ground
+
+            // y = m(x - 1)^2 + 1
+            float equation = 
+                        (LiftMultiplier - 1)
+                        * (float)(Math.Pow(groundDistance - 1.0f, 2.0f));
+            //print("Extra Lift: " + equation);
+            //return dot * equation;
+
+            // Remove Induced Drag
+            float newLiftMag = Vector3.Dot(originalLift, normal)
+                             * dot * equation;
+
+            Vector3 newLift = groundPlane.normal * newLiftMag;
+
+            part.Rigidbody.AddForce(newLift - originalLift, ForceMode.Force);
+
+
+            // return new lift force
+            return newLift;
         }
 
-        private void ResetLiftValues()
-        {
-
-            // Set all values back to default
-
-            if (liftingSurfaces != null)
-            {
-                for (int i = 0; i < liftingSurfaces.Count; i++)
-                {
-                    liftingSurfaces[i].deflectionLiftCoeff = liftingInitLift[i];
-                }
-
-                for (int i = 0; i < controlSurfaces.Count; i++)
-                {
-                    controlSurfaces[i].ctrlSurfaceArea = controlInitLift[i];
-                }
-
-                liftingSurfaces = null;
-                controlSurfaces = null;
-
-                liftingInitLift = null;
-                controlInitLift = null;
-            }
-        }
 
         private void CountSurfaces()
         {
@@ -310,8 +332,6 @@ namespace KSP_GroundEffect
             liftingSurfaces = new List<ModuleLiftingSurface>();
             controlSurfaces = new List<ModuleControlSurface>();
 
-            liftingInitLift = new List<float>();
-            controlInitLift = new List<float>();
 
             inRange = true;
 
@@ -350,13 +370,11 @@ namespace KSP_GroundEffect
                     {
                         // It's a control surface, add to control surface arrays
                         controlSurfaces.Add(thingThatLiftsPartsAndMoves);
-                        controlInitLift.Add(thingThatLiftsPartsAndMoves.ctrlSurfaceArea);
                     }
                     else
                     {
                         // It's just a lifting surface, add to lifting surface arrays
                         liftingSurfaces.Add(thingThatLiftsParts);
-                        liftingInitLift.Add(thingThatLiftsParts.deflectionLiftCoeff);
                     }
                 }
                
