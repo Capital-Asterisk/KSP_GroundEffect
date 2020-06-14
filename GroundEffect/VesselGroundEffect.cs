@@ -13,7 +13,7 @@ namespace KSP_GroundEffect
         public const float ActivateAltitude = 80;
 
         // How much lift is multiplied at maximum proximity
-        public const float LiftMultiplier = 30;
+        public const float DefaultLiftMultiplier = 8;
 
         // Situation at which ground effect can occur
         const Vessel.Situations LowFlying = (
@@ -194,8 +194,8 @@ namespace KSP_GroundEffect
                 Vector3 newLift = AddGroundEffectForce(part, liftingSurfaces[i].liftForce);
                 if (liftingSurfaces[i].liftArrow)
                 {
-                    print("liftarrow");
                     liftingSurfaces[i].liftArrow.Direction = newLift;
+                    liftingSurfaces[i].liftArrow.Length = newLift.magnitude;
                 }
 
 
@@ -206,7 +206,15 @@ namespace KSP_GroundEffect
             for (int i = 0; i < controlSurfaces.Count; i++)
             {
                 Part part = controlSurfaces[i].part;
-                AddGroundEffectForce(part, controlSurfaces[i].liftForce);
+                Vector3 newLift = AddGroundEffectForce(part, controlSurfaces[i].liftForce);
+
+                if (controlSurfaces[i].liftArrow)
+                {
+                    controlSurfaces[i].liftArrow.Direction = newLift;
+                    controlSurfaces[i].liftArrow.Length = newLift.magnitude;
+                }
+
+
                 newWingSpan = Math.Max(newWingSpan, ApproximateWingSpan(part));
             }
 
@@ -281,9 +289,15 @@ namespace KSP_GroundEffect
                 normal = groundPlane.normal;
             }
 
+            if (Vector3.Dot(originalLift, normal) < 0)
+            {
+                // ignore downwards facing wings
+                return originalLift;
+            }
+
             // By now, ground distance has been determined
 
-            // Convert ground distance to wing spans
+            // Convert ground distance to wing spans between 0.0 .. 1.0
             groundDistance = Math.Min(1.0f, groundDistance / wingSpan);
 
             if (groundDistance == 1.0f)
@@ -296,31 +310,54 @@ namespace KSP_GroundEffect
 
             inGroundEffect = true;
 
+
             // Dot product with surface normal is how aligned the wing is to the ground.
             // Vertical stabilizers would have a dot product of zero
             // Horizontal wings will have 1
-            float dot = Math.Abs(Vector3.Dot(groundDir, part.transform.forward));
+            float horizontalness = Math.Abs(Vector3.Dot(groundDir, part.transform.forward));
 
-            // Ground distance is now in wings spans to the ground
 
+            // at groundDistance = 1.0, groundEffectMul is 1.0
+            // as it gets closer to the ground...
+            // at groundDistance = 0.0, groundEffectMul = LiftMultiplier
             // y = m(x - 1)^2 + 1
-            float equation = 
-                        (LiftMultiplier - 1)
-                        * (float)(Math.Pow(groundDistance - 1.0f, 2.0f));
-            //print("Extra Lift: " + equation);
-            //return dot * equation;
+            //float groundEffectMul = (DefaultLiftMultiplier - 1) 
+            //                      * (float)(Math.Pow(groundDistance - 1.0f, 2.0f))
+            //                      + 1;
 
-            // Remove Induced Drag
-            float newLiftMag = Vector3.Dot(originalLift, normal)
-                             * dot * equation;
+            // Induced drag:
+            // get horizontal velocity = velocity - normal * velocity.dot(normal)
+            // normalize horizontal velocity
+            // induced drag = horzVelocity * lift.dot(horzVelocity)
 
-            Vector3 newLift = groundPlane.normal * newLiftMag;
+            Vector3 velocity = part.Rigidbody.velocity;
+            Vector3 horzVelocity = (velocity - normal * Vector3.Dot(velocity, normal)).normalized;
+            Vector3 inducedDrag = horzVelocity * Vector3.Dot(originalLift, horzVelocity);
 
-            part.Rigidbody.AddForce(newLift - originalLift, ForceMode.Force);
+            float groundness = horizontalness * (1.0f - groundDistance);
+            groundness *= groundness;
 
+            // force = -inducedDrag * groundness + (originalLift - inducedDrag) * DefaultLiftMultiplier * groundness;
+            // force = ((originalLift - inducedDrag) * DefaultLiftMultiplier - inducedDrag) * groundness;
+            Vector3 force = -inducedDrag * groundness + (originalLift - inducedDrag) * DefaultLiftMultiplier * groundness;
+            part.Rigidbody.AddForce(force, ForceMode.Force);
+
+            return force + originalLift;
+
+            //Vector3 extraLift = (originalLift - inducedDrag) * DefaultLiftMultiplier * (groundDistance - horizontalness + 1.0f);
+
+            //Vector3 extraLift = normal * horizontalness * equation;
+
+            //float totalMag = originalLift.magnitude * DefaultLiftMultiplier;
+            //Vector3 newLift = Vector3.Lerp(normal * totalMag, originalLift,
+            //                               groundDistance - horizontalness + 1.0f);
+
+            //part.Rigidbody.AddForce(newLift - originalLift, ForceMode.Force);
+
+            //part.Rigidbody.AddForce(newLift - originalLift, ForceMode.Force);
 
             // return new lift force
-            return newLift;
+            //return newLift;
         }
 
 
