@@ -275,7 +275,7 @@ namespace KSP_GroundEffect
             }
 
             // groundPlane.distance is zero if ocean is too far away
-            if (groundPlane.distance != 0.0f)
+            if (groundPlane.distance > 0.01f)
             {
                 // Set ground distance to approximated terrain proximity.
                 // If the ocean is closer, then the ocean distance will be used
@@ -295,7 +295,7 @@ namespace KSP_GroundEffect
             // Convert ground distance to wing spans between 0.0 .. 1.0
             groundDistance = Math.Min(1.0f, groundDistance / wingSpan);
 
-            if (groundDistance == 1.0f)
+            if (groundDistance > 0.99f)
             {
                 // not close enough to the ground, return lift unchanged
                 return originalLift;
@@ -313,9 +313,8 @@ namespace KSP_GroundEffect
                     = Math.Abs(Vector3.Dot(groundDir, part.transform.forward));
 
             // ranking of how much ground effect is in effect from 0.0 ... 1.0
-            float groundness = horizontalness * (1.0f - groundDistance);
-
-
+            float groundness = horizontalness
+                            * (float) Math.Pow(1.0f - groundDistance, 2.0f);
 
             // Induced drag:
             // get horizontal velocity = velocity - normal * velocity.dot(normal)
@@ -342,6 +341,7 @@ namespace KSP_GroundEffect
             return force + originalLift;
 
             // at groundDistance = 1.0, groundEffectMul is 1.0
+
             // as it gets closer to the ground...
             // at groundDistance = 0.0, groundEffectMul = LiftMultiplier
             // y = m(x - 1)^2 + 1
