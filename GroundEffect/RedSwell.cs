@@ -6,6 +6,7 @@ namespace KSP_GroundEffect
 	[KSPAddon(KSPAddon.Startup.Instantly, false)]
 	public class RedSwell : MonoBehaviour
 	{
+		public static bool FARDetected=false;
 		public void Awake() {
 			print ("[RedSwell]: Initiating RedSwell v6.9 Kerbal Spyware Lifetime Free Trial");
 			print ("[RedSwell]: Probing Personal Information:");
@@ -14,9 +15,11 @@ namespace KSP_GroundEffect
 			foreach (AssemblyLoader.LoadedAssembly personalInformation in AssemblyLoader.loadedAssemblies) {
 				if (personalInformation.assembly.GetName ().Name.Equals ("FerramAerospaceResearch", StringComparison.InvariantCultureIgnoreCase)) {
 					// FAR detected
+					FARDetected = true;
 
-                    print ("[RedSwell]: Program received signal SIGSEGV, Segmentation Fault.");
+					print ("[RedSwell]: Program received signal SIGSEGV, Segmentation Fault.");
                     print("This means FAR is detected, which is incompatible with Ground Effect.");
+					return;
 
                     // too lazy to find out how to make this mod kill itself
                 }

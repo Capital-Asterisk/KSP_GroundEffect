@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ferram4;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 
@@ -6,68 +7,29 @@ using UnityEngine;
 
 namespace KSP_GroundEffect
 {
-    struct WingEntry
+    static class Extension
     {
-        public ModuleLiftingSurface surface;
+        static FieldInfo _liftArrow = typeof(FARWingAerodynamicModel).GetField("liftArrow", BindingFlags.Instance | BindingFlags.NonPublic);
+        static FieldInfo _liftDirection = typeof(FARWingAerodynamicModel).GetField("liftDirection", BindingFlags.Instance | BindingFlags.NonPublic);
+        public static ArrowPointer liftArrow(this FARWingAerodynamicModel surface)
+        {
+            return (ArrowPointer)_liftArrow.GetValue(surface);
+        }
+        public static Vector3d liftDirection(this FARWingAerodynamicModel surface) => (Vector3d)_liftDirection.GetValue(surface);
+        public static Vector3 liftForce(this FARWingAerodynamicModel surface)
+        {
+            var liftDir = surface.liftDirection();
+            return Vector3.Dot(surface.worldSpaceForce, liftDir) * liftDir;
+        }
+    }
+    struct FARWingEntry
+    {
         public float groundEffectMultiplier;
+        public FARWingAerodynamicModel surface;
     }
 
-    public class VesselGroundEffectAdder : VesselModule
-    {
-        VesselGroundEffectWrapper module;
-        protected override void OnStart()
-        {
-            base.OnStart();
 
-            if (!module)
-            {
-                if (RedSwell.FARDetected)
-                {
-                    module = gameObject.AddComponent<FARVesselGroundEffect>();
-                }
-                else
-                    module = gameObject.AddComponent<VesselGroundEffect>();
-                module.vessel = vessel;
-            }
-            module.OnStart();
-        }
-        public override void OnLoadVessel()
-        {
-            if (!module)
-            {
-                if (RedSwell.FARDetected)
-                {
-                    module = gameObject.AddComponent<FARVesselGroundEffect>();
-                }
-                else
-                    module = gameObject.AddComponent<VesselGroundEffect>();
-                module.vessel = vessel;
-            }
-            module.OnLoadVessel();
-        }
-        public override void OnUnloadVessel()
-        {
-            if (!module)
-            {
-                if (RedSwell.FARDetected)
-                {
-                    module = gameObject.AddComponent<FARVesselGroundEffect>();
-                }
-                else
-                    module = gameObject.AddComponent<VesselGroundEffect>();
-                module.vessel = vessel;
-            }
-            module.OnLoadVessel();
-        }
-    }
-    public abstract class VesselGroundEffectWrapper : MonoBehaviour
-    {
-        public virtual void OnStart() { }
-        public virtual void OnLoadVessel() { }
-        public virtual void OnUnloadVessel() { }
-        public Vessel vessel { get; set; }
-    }
-    public class VesselGroundEffect : VesselGroundEffectWrapper
+    public class FARVesselGroundEffect : VesselGroundEffectWrapper
     {
 
         // Minimum Radar Altitude to start testing
@@ -83,11 +45,11 @@ namespace KSP_GroundEffect
             | Vessel.Situations.SPLASHED
         );
 
-        // ModuleLiftingSurface uses deflectionLiftCoeff
+        // FARWingAerodynamicModel uses deflectionLiftCoeff
         // ModuleControlSurface uses ctrlSurfaceArea
 
         // Lift of aerodynamic surfaces
-        List<WingEntry> liftingSurfaces;
+        List<FARWingEntry> liftingSurfaces;
         //List<ModuleControlSurface> controlSurfaces;
 
         // Keep track of when the vessel enters/exits the ActivateAltitude
@@ -238,21 +200,21 @@ namespace KSP_GroundEffect
 
             for (int i = 0; i < liftingSurfaces.Count; i++)
             {
-                ModuleLiftingSurface surface = liftingSurfaces[i].surface;
+                FARWingAerodynamicModel surface = liftingSurfaces[i].surface;
                 float mul = liftingSurfaces[i].groundEffectMultiplier;
                 Part part = surface.part;
 
 
 
-                Vector3 newLift = AddGroundEffectForce(part, surface.liftForce,
+                Vector3 newLift = AddGroundEffectForce(part, surface.liftForce(),
                         mul);
 
                 // set aerodynamic overlay
-                if (surface.liftArrow)
+                if (surface.liftArrow())
                 {
                     // arrow length is 2x smaller than lift force as of 1.10
-                    surface.liftArrow.Length = newLift.magnitude * 0.5f;
-                    surface.liftArrow.Direction = newLift;
+                    surface.liftArrow().Length = newLift.magnitude * 0.5f;
+                    surface.liftArrow().Direction = newLift;
                 }
 
 
@@ -428,7 +390,7 @@ namespace KSP_GroundEffect
 
             print("Counting wings for " + vessel.GetName());
 
-            liftingSurfaces = new List<WingEntry>();
+            liftingSurfaces = new List<FARWingEntry>();
 
 
             inRange = true;
@@ -441,17 +403,17 @@ namespace KSP_GroundEffect
             foreach (Part part in vessel.Parts)
             {
 
-                ModuleLiftingSurface thingThatLiftsParts = null;
+                FARWingAerodynamicModel thingThatLiftsParts = null;
                 float multiplyingLiftWhatever = DefaultLiftMultiplier;
 
                 // Look through the list of part modules to find anything that
-                // inherits ModuleLiftingSurface
+                // inherits FARWingAerodynamicModel
                 foreach (PartModule module in part.Modules)
                 {
 
-                    if (typeof(ModuleLiftingSurface).IsAssignableFrom(module.GetType()))
+                    if (typeof(FARWingAerodynamicModel).IsAssignableFrom(module.GetType()))
                     {
-                        thingThatLiftsParts = (ModuleLiftingSurface)(module);
+                        thingThatLiftsParts = (FARWingAerodynamicModel)(module);
                         //initialLift = thingThatLiftsParts.deflectionLiftCoeff;
 
 
@@ -470,7 +432,7 @@ namespace KSP_GroundEffect
 
                 if (thingThatLiftsParts != null)
                 {
-                    WingEntry entry = new WingEntry();
+                    FARWingEntry entry = new FARWingEntry();
                     entry.groundEffectMultiplier = multiplyingLiftWhatever;
                     entry.surface = thingThatLiftsParts;
                     liftingSurfaces.Add(entry);
